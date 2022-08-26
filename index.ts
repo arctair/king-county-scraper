@@ -1,25 +1,58 @@
 import axios from 'axios'
+import fs from 'fs'
+import path from 'path'
+import { promisify } from 'util'
+
+const writeFile = promisify(fs.writeFile)
 
 async function main() {
-  const response = await axios.get(
-    `https://gismaps.kingcounty.gov/ArcGIS/rest/services/Address/KingCo_AddressPoints/MapServer/0/query`,
+  const OUT_LAYER_DIRECTORY = process.env.OUT_LAYER_DIRECTORY
+  if (OUT_LAYER_DIRECTORY === undefined)
+    throw Error('missing env var OUT_LAYER_DIRECTORY')
+
+  let resultOffset = 0
+  let exceededTransferLimit = true
+  while (exceededTransferLimit) {
+    console.log('getting offset', resultOffset)
+    const response = await getResults({ resultOffset })
+    await writeFile(
+      path.join(OUT_LAYER_DIRECTORY, `${resultOffset}.json`),
+      JSON.stringify(response.data),
+    )
+    resultOffset += response.data.features.length
+  }
+}
+
+interface getResultsProps {
+  resultOffset: number
+}
+function getResults({ resultOffset }: getResultsProps) {
+  return axios.get(
+    `https://gismaps.kingcounty.gov/ArcGIS/rest/services/Property/KingCo_Parcels/MapServer/0/query`,
     {
       params: new URLSearchParams({
         f: 'json',
         returnGeometry: 'true',
         spatialRel: 'esriSpatialRelIntersects',
-        geometry: decodeURIComponent(
-          '%7B%22xmin%22%3A-13599531.826702124%2C%22ymin%22%3A6055711.645073277%2C%22xmax%22%3A-13599503.312575594%2C%22ymax%22%3A6055740.159199806%2C%22spatialReference%22%3A%7B%22wkid%22%3A102100%7D%7D',
-        ),
+        geometry: JSON.stringify({
+          //   xmin: -13599531.826702124,
+          xmin: -20037508.34,
+          //   ymin: 6055711.645073277,
+          ymin: -20037508.34,
+          //   xmax: -13599503.312575594,
+          xmax: 20037508.34,
+          //   ymax: 6055740.159199806,
+          ymax: 20037508.34,
+          spatialReference: { wkid: 102100 },
+        }),
         geometryType: 'esriGeometryEnvelope',
         inSR: '102100',
-        outFields: decodeURIComponent('ADDR_FULL%2COBJECTID'),
+        outFields: ['OBJECTID', 'PIN'].join(','),
         outSR: '102100',
+        resultOffset: resultOffset.toString(),
       }),
     },
   )
-
-  process.stdout.write(JSON.stringify(response.data))
 }
 
 main()
